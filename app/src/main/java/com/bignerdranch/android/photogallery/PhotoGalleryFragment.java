@@ -6,10 +6,12 @@ import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,9 +26,9 @@ public class PhotoGalleryFragment extends Fragment {
 
     private RecyclerView mPhotoRecyclerView;
     private List<GalleryItem> mItems = new ArrayList<>();
+    private int mPageNumber = 1;
 
     public static PhotoGalleryFragment newInstance() {
-
         return new PhotoGalleryFragment();
     }
 
@@ -45,6 +47,21 @@ public class PhotoGalleryFragment extends Fragment {
 
         mPhotoRecyclerView = (RecyclerView) v.findViewById(R.id.photo_recycler_view);
         mPhotoRecyclerView.setLayoutManager(new GridLayoutManager(getActivity(), 3));
+        mPhotoRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
+                super.onScrollStateChanged(recyclerView, newState);
+                GridLayoutManager lm = (GridLayoutManager) recyclerView.getLayoutManager();
+                int totalItems = lm.getItemCount();
+                int lastVisibleItem = lm.findLastVisibleItemPosition();
+
+                if ((lastVisibleItem + 6) >= totalItems && mPageNumber < 10) {
+                    // Call api and append items (Temporarily replace)
+                    mPageNumber++;
+                    new FetchItemsTask().execute();
+                }
+            }
+        });
         setupAdapter();
         return v;
     }
@@ -96,6 +113,7 @@ public class PhotoGalleryFragment extends Fragment {
         public int getItemCount() {
             return mGalleryItems.size();
         }
+
     }
 
     private class FetchItemsTask extends AsyncTask<Void, Void, List<GalleryItem>> {
@@ -103,13 +121,21 @@ public class PhotoGalleryFragment extends Fragment {
         @Override
         protected List<GalleryItem> doInBackground(Void... params) {
 
-            return new FlickrFetchr().fetchItems();
+            return new FlickrFetchr().fetchItems(mPageNumber);
         }
 
         @Override
         protected void onPostExecute(List<GalleryItem> galleryItems) {
-            mItems = galleryItems;
-            setupAdapter();
+            if (mItems.size() == 0) {
+                mItems = galleryItems;
+                setupAdapter();
+            } else {
+                int oldSize = mItems.size();
+                mItems.addAll(galleryItems);
+                Log.i(TAG, "onPostExecute: added " + mItems.size() + " items");
+                Toast.makeText(getActivity(), "Got more items!", Toast.LENGTH_SHORT).show();
+                mPhotoRecyclerView.getAdapter().notifyItemRangeInserted(oldSize, galleryItems.size());
+            }
         }
     }
 }
