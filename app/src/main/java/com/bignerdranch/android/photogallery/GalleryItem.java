@@ -13,7 +13,7 @@ public class GalleryItem {
     @SerializedName("id")
     private String mId;
 
-    @SerializedName("s_url")
+    @SerializedName("url_s")
     private String mUrl;
 
     @Override
