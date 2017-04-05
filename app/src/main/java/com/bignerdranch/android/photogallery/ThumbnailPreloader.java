@@ -12,18 +12,24 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Created by Chris on 4/3/2017.
+ * Created by Chris on 4/5/2017. Use with Process.THREAD_PRIORITY_LOWEST (not as important as
+ * regular download
  */
 
-public class ThumbnailDownloader<T> extends HandlerThread {
+public class ThumbnailPreloader<T> extends HandlerThread {
 
-    private static final String TAG = "ThumbnailDownloader";
-    private static final int MESSAGE_DOWNLOAD = 0;
+    private static final String TAG = "ThumbnailPreloader";
 
+    private static final int MESSAGE_PRELOAD = 1;
 
-    public boolean mHasQuit = false;
+    private boolean mHasQuit = false;
+
     private Handler mRequestHandler;
     private ConcurrentMap<T, String> mRequestMap = new ConcurrentHashMap<>();
+
+    public ThumbnailPreloader(String name, int priority) {
+        super(TAG, priority);
+    }
 
     // Response
     private Handler mResponseHandler;
@@ -37,7 +43,7 @@ public class ThumbnailDownloader<T> extends HandlerThread {
         mThumbnailDownloadListener = listener;
     }
 
-    public ThumbnailDownloader(Handler responseHandler) {
+    public ThumbnailPreloader(Handler responseHandler) {
         super(TAG);
         mResponseHandler = responseHandler;
     }
@@ -47,9 +53,9 @@ public class ThumbnailDownloader<T> extends HandlerThread {
         mRequestHandler = new Handler() {
             @Override
             public void handleMessage(Message msg) {
-                if (msg.what == MESSAGE_DOWNLOAD) {
+                if (msg.what == MESSAGE_PRELOAD) {
                     T target = (T) msg.obj;
-                    Log.i(TAG, "Got a request for URL: " + mRequestMap.get(target));
+                    Log.i(TAG, "Got a preload request for URL: " + mRequestMap.get(target));
                     handleRequest(target);
                 }
             }
@@ -72,13 +78,13 @@ public class ThumbnailDownloader<T> extends HandlerThread {
             mRequestMap.put(target, url);
         }
 
-        mRequestHandler.obtainMessage(MESSAGE_DOWNLOAD, target)
+        mRequestHandler.obtainMessage(MESSAGE_PRELOAD, target)
                 .sendToTarget();
     }
 
     // Clears the queue for configuration changes
     public void clearQueue() {
-        mRequestHandler.removeMessages(MESSAGE_DOWNLOAD);
+        mRequestHandler.removeMessages(MESSAGE_PRELOAD);
         mRequestMap.clear();
     }
 
@@ -99,7 +105,8 @@ public class ThumbnailDownloader<T> extends HandlerThread {
             mResponseHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    if (!mRequestMap.get(target).equals(url) || mHasQuit) {
+                    if (mRequestMap == null || mRequestMap.get(target) == null ||
+                            !mRequestMap.get(target).equals(url) || mHasQuit) {
                         return;
                     }
 
@@ -113,3 +120,5 @@ public class ThumbnailDownloader<T> extends HandlerThread {
         }
     }
 }
+
+

@@ -6,6 +6,7 @@ import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Process;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
 import android.support.v4.util.LruCache;
@@ -32,6 +33,7 @@ public class PhotoGalleryFragment extends Fragment {
     private RecyclerView mPhotoRecyclerView;
     private List<GalleryItem> mItems = new ArrayList<>();
     private ThumbnailDownloader<PhotoHolder> mThumbnailDownloader;
+    private ThumbnailPreloader<Integer> mThumbnailPreloader;
 
     private int mPageNumber = 1;
     private int mNumColumns = 3;
@@ -53,7 +55,9 @@ public class PhotoGalleryFragment extends Fragment {
         // Set up handlers for receiving thumbnails from ThumbnailDownloader thread
         Handler responseHandler = new Handler();
         mThumbnailDownloader = new ThumbnailDownloader<>(responseHandler);
+        mThumbnailPreloader = new ThumbnailPreloader<Integer>(responseHandler);
 
+        // Place image in cache and set photoHolder image
         mThumbnailDownloader.setThumbnailDownloadListener(new ThumbnailDownloader.ThumbnailDownloadListener<PhotoHolder>() {
             @Override
             public void onThumbnailDownloaded(PhotoHolder photoHolder, Bitmap thumbnail, String url) {
@@ -64,9 +68,34 @@ public class PhotoGalleryFragment extends Fragment {
                 photoHolder.bindDrawable(drawable);
             }
         });
+
+        // Store preloaded image in cache
+        mThumbnailPreloader.setThumbnailDownloadListener(new ThumbnailPreloader.ThumbnailDownloadListener<Integer>() {
+            @Override
+            public void onThumbnailDownloaded(Integer target, Bitmap thumbnail, String url) {
+                // Only store in cache since we are preloading
+                PhotoCache photoCache = PhotoCache.get(getContext());
+                photoCache.addBitmapToMemoryCache(url, thumbnail);
+            }
+        });
+
         mThumbnailDownloader.start();
         mThumbnailDownloader.getLooper();
-        Log.i(TAG, "Background thread started");
+        Log.i(TAG, "Download Background thread started");
+
+        mThumbnailPreloader.setPriority(Process.THREAD_PRIORITY_LESS_FAVORABLE);
+        mThumbnailPreloader.start();
+        mThumbnailDownloader.getLooper();
+        Log.i(TAG, "Preloader background thread started");
+
+
+        // TODO: 4/5/2017 add preloading
+        // load first images on setup
+        // load next ten as well, into cache
+        // on scroll check that the first visible index - 10 >= 0
+        //// if it is, add the previous 10 images to the cache
+        // on scroll check that the last visible index + 10 < gallery array length
+        //// if it is, loop through and add each to download and then go in the cache
     }
 
     @Override
@@ -97,6 +126,7 @@ public class PhotoGalleryFragment extends Fragment {
                 GridLayoutManager lm = (GridLayoutManager) recyclerView.getLayoutManager();
                 int totalItems = lm.getItemCount();
                 int lastVisibleItem = lm.findLastVisibleItemPosition();
+                preloadPhotos();
 
                 if ((lastVisibleItem + 10) >= totalItems && mPageNumber < 10) {
                     // Call api and append items (Temporarily replace)
@@ -122,8 +152,45 @@ public class PhotoGalleryFragment extends Fragment {
     }
 
     private void setupAdapter() {
+        preloadPhotos();
         if (isAdded()) {
             mPhotoRecyclerView.setAdapter(new PhotoAdapter(mItems));
+        }
+    }
+
+    private void preloadPhotos() {
+        GridLayoutManager lm = (GridLayoutManager) mPhotoRecyclerView.getLayoutManager();
+        int firstVisiblePosition = lm.findFirstVisibleItemPosition();
+        int lastVisiblePosition = lm.findLastVisibleItemPosition();
+        PhotoCache photoCache = PhotoCache.get(getContext());
+
+        if (firstVisiblePosition - 10 >= 0) {
+            // load previous 10 images into cache
+            for (int position = firstVisiblePosition - 10; position < firstVisiblePosition; position++) {
+                String url = mItems.get(position).getUrl();
+
+                if (photoCache.getBitmapFromMemCache(url) != null) {
+                    // No need to re-download this
+                    continue;
+                }
+                mThumbnailPreloader.queueThumbnail(position, url);
+            }
+
+            // load next 10 images
+            if (lastVisiblePosition + 10 <= mItems.size()) {
+                for (int position = lastVisiblePosition + 1; position < lastVisiblePosition + 10; position++) {
+                    String url = mItems.get(position).getUrl();
+
+                    if (photoCache.getBitmapFromMemCache(url) != null) {
+                        // no need to re-download this
+                        Log.i(TAG, "Already cached");
+                        continue;
+                    }
+
+                    mThumbnailPreloader.queueThumbnail(position, url);
+                }
+            }
+
         }
     }
 
