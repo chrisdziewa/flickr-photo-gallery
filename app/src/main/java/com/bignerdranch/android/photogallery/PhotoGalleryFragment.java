@@ -59,31 +59,13 @@ public class PhotoGalleryFragment extends Fragment {
             public void onThumbnailDownloaded(PhotoHolder photoHolder, Bitmap thumbnail, String url) {
                 Drawable drawable = new BitmapDrawable(getResources(), thumbnail);
 
-                addBitmapToMemoryCache(url, thumbnail);
+                PhotoCache photoCache = PhotoCache.get(getContext());
+                photoCache.addBitmapToMemoryCache(url, thumbnail);
                 photoHolder.bindDrawable(drawable);
             }
         });
         mThumbnailDownloader.start();
         mThumbnailDownloader.getLooper();
-
-        // Initialize cache
-
-        // Get max available VM memory, exceeding this amount will throw an
-        // OutOfMemory exception. Stored in kilobytes as LruCache takes an
-        // int in its constructor.
-        final int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
-
-        // Use 1/8th of the available memory for this memory cache.
-        final int cacheSize = maxMemory / 8;
-
-        mImageCache = new LruCache<String, Bitmap>(cacheSize) {
-            @Override
-            protected int sizeOf(String key, Bitmap bitmap) {
-                // The cache size will be measured in kilobytes rather than
-                // number of items.
-                return bitmap.getByteCount() / 1024;
-            }
-        };
         Log.i(TAG, "Background thread started");
     }
 
@@ -139,17 +121,6 @@ public class PhotoGalleryFragment extends Fragment {
         return v;
     }
 
-    // Add photo into LruCache if it isn't already there
-    public void addBitmapToMemoryCache(String key, Bitmap bitmap) {
-        if (getBitmapFromMemCache(key) == null) {
-            mImageCache.put(key, bitmap);
-        }
-    }
-
-    public Bitmap getBitmapFromMemCache(String key) {
-        return mImageCache.get(key);
-    }
-
     private void setupAdapter() {
         if (isAdded()) {
             mPhotoRecyclerView.setAdapter(new PhotoAdapter(mItems));
@@ -194,9 +165,11 @@ public class PhotoGalleryFragment extends Fragment {
             // current image
             Drawable currentImage = getResources().getDrawable(R.drawable.bill_up_close);
 
-            if (getBitmapFromMemCache(galleryItem.getUrl()) != null) {
-                currentImage = new BitmapDrawable(getResources(), getBitmapFromMemCache(galleryItem.getUrl()));
-                Log.i(TAG, "Found in cache, no need to ");
+            PhotoCache photoCache = PhotoCache.get(getContext());
+
+            if (photoCache.getBitmapFromMemCache(galleryItem.getUrl()) != null) {
+                currentImage = new BitmapDrawable(getResources(), photoCache.getBitmapFromMemCache(galleryItem.getUrl()));
+                Log.i(TAG, "Found in cache, no need to download image");
             } else {
                 mThumbnailDownloader.queueThumbnail(holder, galleryItem.getUrl());
             }
