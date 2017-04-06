@@ -1,23 +1,31 @@
 package com.bignerdranch.android.photogallery;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Process;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
 import android.support.v4.util.LruCache;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.SearchView;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,12 +39,14 @@ public class PhotoGalleryFragment extends Fragment {
     private static final String TAG = "PhotoGalleryFragment";
 
     private RecyclerView mPhotoRecyclerView;
+    private ProgressBar mProgressBar;
     private List<GalleryItem> mItems = new ArrayList<>();
     private ThumbnailDownloader<PhotoHolder> mThumbnailDownloader;
     private ThumbnailPreloader<Integer> mThumbnailPreloader;
 
     private int mPageNumber = 1;
     private int mNumColumns = 3;
+    private boolean mNewQuery = true;
 
     // Cache instance
     private LruCache<String, Bitmap> mImageCache;
@@ -49,8 +59,9 @@ public class PhotoGalleryFragment extends Fragment {
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setRetainInstance(true);
+        setHasOptionsMenu(true);
 
-        new FetchItemsTask().execute();
+        updateItems();
 
         // Set up handlers for receiving thumbnails from ThumbnailDownloader thread
         Handler responseHandler = new Handler();
@@ -99,6 +110,67 @@ public class PhotoGalleryFragment extends Fragment {
     }
 
     @Override
+    public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
+        super.onCreateOptionsMenu(menu, inflater);
+        inflater.inflate(R.menu.fragment_photo_gallery, menu);
+
+        MenuItem searchItem = menu.findItem(R.id.menu_item_search);
+        final SearchView searchView = (SearchView) searchItem.getActionView();
+
+        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextSubmit(String query) {
+                Log.d(TAG, "QueryTextSubmit: " + query);
+                QueryPreferences.setStoredQuery(getActivity(), query);
+                hideKeyboard();
+                mProgressBar.setVisibility(View.VISIBLE);
+                mNewQuery = true;
+                mItems = new ArrayList<GalleryItem>();
+                setupAdapter();
+                updateItems();
+                return true;
+            }
+
+            @Override
+            public boolean onQueryTextChange(String newText) {
+                Log.d(TAG, "QueryTextChange: " + newText);
+                return false;
+            }
+        });
+    }
+
+    private void hideKeyboard() {
+        // https://stackoverflow.com/questions/3400028/close-virtual-keyboard-on-button-press
+        // Thanks to users: Mazzy and Peter Ajtai
+        InputMethodManager inputManager = (InputMethodManager) getActivity()
+                .getSystemService(Context.INPUT_METHOD_SERVICE);
+
+         View currentFocus = (View) getActivity().getCurrentFocus();
+        // Make sure no error is thrown if keyboard is already closed
+        IBinder windowToken = currentFocus == null ? null : currentFocus.getWindowToken();
+
+        inputManager.hideSoftInputFromWindow(windowToken, InputMethodManager.HIDE_NOT_ALWAYS);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.menu_item_clear:
+                QueryPreferences.setStoredQuery(getActivity(), null);
+                updateItems();
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+    }
+
+    private void updateItems() {
+        String query = QueryPreferences.getStoredQuery(getActivity());
+
+        new FetchItemsTask(query).execute();
+    }
+
+    @Override
     public void onDestroyView() {
         super.onDestroyView();
         mThumbnailDownloader.clearQueue();
@@ -117,6 +189,7 @@ public class PhotoGalleryFragment extends Fragment {
     public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_photo_gallery, container, false);
 
+        mProgressBar = (ProgressBar) v.findViewById(R.id.circle_loader);
         mPhotoRecyclerView = (RecyclerView) v.findViewById(R.id.photo_recycler_view);
         mPhotoRecyclerView.setLayoutManager(new GridLayoutManager(getActivity(), mNumColumns));
         mPhotoRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -131,7 +204,7 @@ public class PhotoGalleryFragment extends Fragment {
                 if ((lastVisibleItem + 10) >= totalItems && mPageNumber < 10) {
                     // Call api and append items (Temporarily replace)
                     mPageNumber++;
-                    new FetchItemsTask().execute();
+                    updateItems();
                 }
             }
         });
@@ -152,9 +225,10 @@ public class PhotoGalleryFragment extends Fragment {
     }
 
     private void setupAdapter() {
-        preloadPhotos();
+
         if (isAdded()) {
             mPhotoRecyclerView.setAdapter(new PhotoAdapter(mItems));
+            preloadPhotos();
         }
     }
 
@@ -253,16 +327,33 @@ public class PhotoGalleryFragment extends Fragment {
 
     private class FetchItemsTask extends AsyncTask<Void, Void, List<GalleryItem>> {
 
+        private String mQuery;
+
+        public FetchItemsTask(String query) {
+            mQuery = query;
+        }
+
         @Override
         protected List<GalleryItem> doInBackground(Void... params) {
 
-            return new FlickrFetchr().fetchItems(mPageNumber);
+            if (mQuery == null) {
+                return new FlickrFetchr()
+                        .fetchRecentPhotos(mPageNumber);
+            } else {
+                return new FlickrFetchr()
+                        .searchPhotos(mQuery, mPageNumber);
+            }
         }
 
         @Override
         protected void onPostExecute(List<GalleryItem> galleryItems) {
-            if (mItems.size() == 0) {
+            if (mProgressBar.getVisibility() == View.VISIBLE) {
+                mProgressBar.setVisibility(View.GONE);
+            }
+
+            if (mItems.size() == 0 || mNewQuery) {
                 mItems = galleryItems;
+                mNewQuery = false;
                 setupAdapter();
             } else {
                 int oldSize = mItems.size();
