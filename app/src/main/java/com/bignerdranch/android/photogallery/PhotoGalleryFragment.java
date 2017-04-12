@@ -46,7 +46,6 @@ public class PhotoGalleryFragment extends Fragment {
 
     private int mPageNumber = 1;
     private int mNumColumns = 3;
-    private boolean mNewQuery = true;
 
     // Cache instance
     private LruCache<String, Bitmap> mImageCache;
@@ -124,7 +123,6 @@ public class PhotoGalleryFragment extends Fragment {
                 QueryPreferences.setStoredQuery(getActivity(), query);
                 hideKeyboard();
                 mProgressBar.setVisibility(View.VISIBLE);
-                mNewQuery = true;
                 mItems = new ArrayList<GalleryItem>();
                 setupAdapter();
                 updateItems();
@@ -137,6 +135,22 @@ public class PhotoGalleryFragment extends Fragment {
                 return false;
             }
         });
+
+        searchView.setOnSearchClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String query =
+                        QueryPreferences.getStoredQuery(getActivity());
+                searchView.setQuery(query, false);
+            }
+        });
+
+        MenuItem toggleItem = menu.findItem(R.id.menu_item_toggle_polling);
+        if (PollService.isServiceAlarmOn(getActivity())) {
+            toggleItem.setTitle(R.string.stop_polling);
+        } else {
+            toggleItem.setTitle(R.string.start_polling);
+        }
     }
 
     private void hideKeyboard() {
@@ -145,7 +159,7 @@ public class PhotoGalleryFragment extends Fragment {
         InputMethodManager inputManager = (InputMethodManager) getActivity()
                 .getSystemService(Context.INPUT_METHOD_SERVICE);
 
-         View currentFocus = (View) getActivity().getCurrentFocus();
+        View currentFocus = (View) getActivity().getCurrentFocus();
         // Make sure no error is thrown if keyboard is already closed
         IBinder windowToken = currentFocus == null ? null : currentFocus.getWindowToken();
 
@@ -157,7 +171,13 @@ public class PhotoGalleryFragment extends Fragment {
         switch (item.getItemId()) {
             case R.id.menu_item_clear:
                 QueryPreferences.setStoredQuery(getActivity(), null);
+                mItems = new ArrayList<>();
                 updateItems();
+                return true;
+            case R.id.menu_item_toggle_polling:
+                boolean shouldStartAlarm = !PollService.isServiceAlarmOn(getActivity());
+                PollService.setServiceAlarm(getActivity(), shouldStartAlarm);
+                getActivity().invalidateOptionsMenu();
                 return true;
             default:
                 return super.onOptionsItemSelected(item);
@@ -351,9 +371,13 @@ public class PhotoGalleryFragment extends Fragment {
                 mProgressBar.setVisibility(View.GONE);
             }
 
-            if (mItems.size() == 0 || mNewQuery) {
+            if (galleryItems.size() == 0) {
+                return;
+            }
+
+            if (mItems.size() == 0) {
                 mItems = galleryItems;
-                mNewQuery = false;
+                QueryPreferences.setLastResultId(getActivity(), mItems.get(0).getId());
                 setupAdapter();
             } else {
                 int oldSize = mItems.size();
