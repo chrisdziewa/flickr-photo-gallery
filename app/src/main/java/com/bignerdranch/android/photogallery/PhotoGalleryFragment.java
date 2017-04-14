@@ -1,10 +1,14 @@
 package com.bignerdranch.android.photogallery;
 
+import android.app.job.JobInfo;
+import android.app.job.JobScheduler;
+import android.content.ComponentName;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -37,6 +41,9 @@ import java.util.List;
 public class PhotoGalleryFragment extends Fragment {
 
     private static final String TAG = "PhotoGalleryFragment";
+
+    // For Lollipop and above background job service
+    public static final int JOB_ID = 1;
 
     private RecyclerView mPhotoRecyclerView;
     private ProgressBar mProgressBar;
@@ -97,15 +104,6 @@ public class PhotoGalleryFragment extends Fragment {
         mThumbnailPreloader.start();
         mThumbnailDownloader.getLooper();
         Log.i(TAG, "Preloader background thread started");
-
-
-        // TODO: 4/5/2017 add preloading
-        // load first images on setup
-        // load next ten as well, into cache
-        // on scroll check that the first visible index - 10 >= 0
-        //// if it is, add the previous 10 images to the cache
-        // on scroll check that the last visible index + 10 < gallery array length
-        //// if it is, loop through and add each to download and then go in the cache
     }
 
     @Override
@@ -146,11 +144,20 @@ public class PhotoGalleryFragment extends Fragment {
         });
 
         MenuItem toggleItem = menu.findItem(R.id.menu_item_toggle_polling);
-        if (PollService.isServiceAlarmOn(getActivity())) {
-            toggleItem.setTitle(R.string.stop_polling);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            if (PollService.isServiceAlarmOn(getActivity())) {
+                toggleItem.setTitle(R.string.stop_polling);
+            } else {
+                toggleItem.setTitle(R.string.start_polling);
+            }
         } else {
-            toggleItem.setTitle(R.string.start_polling);
+            if (PollJobService.isJobScheduled(getActivity(), JOB_ID)) {
+                toggleItem.setTitle(R.string.stop_polling);
+            } else {
+                toggleItem.setTitle(R.string.start_polling);
+            }
         }
+
     }
 
     private void hideKeyboard() {
@@ -175,8 +182,45 @@ public class PhotoGalleryFragment extends Fragment {
                 updateItems();
                 return true;
             case R.id.menu_item_toggle_polling:
-                boolean shouldStartAlarm = !PollService.isServiceAlarmOn(getActivity());
-                PollService.setServiceAlarm(getActivity(), shouldStartAlarm);
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+                    // Pre lollipop alarm style polling
+                    boolean shouldStartAlarm = !PollService.isServiceAlarmOn(getActivity());
+                    PollService.setServiceAlarm(getActivity(), shouldStartAlarm);
+                } else {
+                    // Uses job service
+                    boolean shouldStartJobService = !PollJobService.isJobScheduled(getActivity(), JOB_ID);
+                    Context context = getActivity();
+                    JobScheduler scheduler = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+
+                    if (shouldStartJobService) {
+
+                        JobInfo.Builder jobInfoBuilder =
+                                new JobInfo.Builder(JOB_ID, new ComponentName(context, PollJobService.class))
+                                .setPersisted(true)
+                                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED);
+
+                        JobInfo jobInfo;
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                jobInfoBuilder.setPeriodic(1000 * 60 * 15, 1000 * 60);
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            jobInfoBuilder.setPeriodic(1000 * 60);
+                        } else {
+                            return true;
+                        }
+                        jobInfo = jobInfoBuilder.build();
+                        scheduler.schedule(jobInfo);
+                        Log.i(TAG, "scheduleNewJob: started new");
+                    } else {
+                        Log.i(TAG, "scheduleNewJob: canceled old");
+                        for (JobInfo jobInfo : scheduler.getAllPendingJobs()) {
+                            if (jobInfo.getId() == JOB_ID) {
+                                scheduler.cancel(JOB_ID);
+                            }
+                        }
+                    }
+                }
+
                 getActivity().invalidateOptionsMenu();
                 return true;
             default:
