@@ -1,30 +1,36 @@
 package com.bignerdranch.android.photogallery;
 
+import android.annotation.TargetApi;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.job.JobInfo;
 import android.app.job.JobParameters;
 import android.app.job.JobScheduler;
 import android.app.job.JobService;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.os.AsyncTask;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationManagerCompat;
 import android.util.Log;
 
 import java.util.List;
 
+
 /**
  * Created by Chris on 4/14/2017.
  */
 
-@RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+
+@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class PollJobService extends JobService {
     private static final String TAG = "PollJobService";
+
+    // For Lollipop and above background job service
+    public static final int JOB_ID = 1;
     private PollTask mCurrentTask;
 
     @Override
@@ -53,6 +59,38 @@ public class PollJobService extends JobService {
         }
 
         return hasBeenScheduled;
+    }
+
+    public static void scheduleNewJob(Context context, boolean shouldStartJob) {
+        final JobScheduler scheduler = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+
+        if (shouldStartJob) {
+
+            JobInfo.Builder jobInfoBuilder =
+                    new JobInfo.Builder(JOB_ID, new ComponentName(context, PollJobService.class))
+                            .setPersisted(true)
+                            .setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                Log.i(TAG, "Android N");
+                jobInfoBuilder.setPeriodic(1000 * 60 * 15, 1000 * 60 * 5);
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                Log.i(TAG, "Android Lollipop");
+                jobInfoBuilder.setPeriodic(1000 * 60);
+            } else {
+                return;
+            }
+            JobInfo jobInfo = jobInfoBuilder.build();
+            scheduler.schedule(jobInfo);
+            Log.i(TAG, "scheduleNewJob: started new");
+        } else {
+            Log.i(TAG, "scheduleNewJob: canceled old");
+            for (JobInfo jobInfo : scheduler.getAllPendingJobs()) {
+                if (jobInfo.getId() == JOB_ID) {
+                    scheduler.cancel(JOB_ID);
+                }
+            }
+        }
     }
 
     private class PollTask extends AsyncTask<JobParameters, Void, List<GalleryItem>> {
