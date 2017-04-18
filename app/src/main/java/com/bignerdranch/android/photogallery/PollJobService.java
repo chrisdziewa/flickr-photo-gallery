@@ -1,6 +1,7 @@
 package com.bignerdranch.android.photogallery;
 
 import android.annotation.TargetApi;
+import android.app.Activity;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.job.JobInfo;
@@ -14,10 +15,11 @@ import android.content.res.Resources;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.support.v4.app.NotificationCompat;
-import android.support.v4.app.NotificationManagerCompat;
 import android.util.Log;
 
 import java.util.List;
+
+import static com.bignerdranch.android.photogallery.PollService.PERM_PRIVATE;
 
 
 /**
@@ -28,6 +30,9 @@ import java.util.List;
 @TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class PollJobService extends JobService {
     private static final String TAG = "PollJobService";
+
+    // Broadcast
+    public static final String ACTION_SHOW_NOTIFICATION = "com.bignerdranch.android.photogallery.SHOW_NOTIFICATION";
 
     // For Lollipop and above background job service
     public static final int JOB_ID = 1;
@@ -144,12 +149,18 @@ public class PollJobService extends JobService {
                         .setContentIntent(pi)
                         .setAutoCancel(true)
                         .build();
+                showBackgroundNotification(0, notification);
 
-                NotificationManagerCompat notificationManager = NotificationManagerCompat.from(context);
-                notificationManager.notify(0, notification);
             }
             QueryPreferences.setLastResultId(context, resultId);
         }
+    }
+
+    private void showBackgroundNotification(int requestCode, Notification notification) {
+        Intent i = new Intent(ACTION_SHOW_NOTIFICATION);
+        i.putExtra(PollService.REQUEST_CODE, requestCode);
+        i.putExtra(PollService.NOTIFICATION, notification);
+        sendOrderedBroadcast(i, PERM_PRIVATE, null, null, Activity.RESULT_OK, null, null);
     }
 
 }
