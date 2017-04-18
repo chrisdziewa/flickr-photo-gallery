@@ -91,6 +91,8 @@ public class PollJobService extends JobService {
                 }
             }
         }
+
+        QueryPreferences.setAlarmOn(context, shouldStartJob);
     }
 
     private class PollTask extends AsyncTask<JobParameters, Void, List<GalleryItem>> {
