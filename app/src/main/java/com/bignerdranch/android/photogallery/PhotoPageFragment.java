@@ -1,14 +1,18 @@
 package com.bignerdranch.android.photogallery;
 
 import android.annotation.SuppressLint;
+import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
@@ -56,6 +60,10 @@ public class PhotoPageFragment extends VisibleFragment {
 
         mWebView.getSettings().setJavaScriptEnabled(true);
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            mWebView.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        }
+
         mWebView.setWebChromeClient(new WebChromeClient() {
             public void onProgressChanged(WebView webView, int newProgress) {
                 if (newProgress == 100) {
@@ -72,9 +80,25 @@ public class PhotoPageFragment extends VisibleFragment {
             }
         });
 
-        mWebView.setWebViewClient(new WebViewClient());
-        mWebView.loadUrl(mUri.toString());
 
+        mWebView.setWebViewClient(new WebViewClient() {
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                String scheme = Uri.parse(url).getScheme();
+
+                if (!scheme.equals("http") && !scheme.equals("https")) {
+                    // override and use Action view instead
+                    Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    Log.i(TAG, "shouldOverrideUrlLoading: called with uri: " + url);
+                    view.getContext().startActivity(i);
+                    return true;
+                }
+                // standard url
+                Log.i(TAG, "shouldOverrideUrlLoading: standard uri");
+                return false;
+            }
+        });
+
+        mWebView.loadUrl(mUri.toString());
         return v;
     }
 
